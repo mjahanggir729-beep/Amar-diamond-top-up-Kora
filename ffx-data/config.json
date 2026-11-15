@@ -6,7 +6,20 @@
     "default:Banner 2.jpg",
     "banner-1794771286517-3407.jpg"
   ],
-  "quick": null,
+  "quick": [
+    {
+      "label": "Telegram",
+      "url": "https://t.me/+TXyQbIvn3ctmYjZl"
+    },
+    {
+      "label": "Join Group",
+      "url": ""
+    },
+    {
+      "label": "YouTube",
+      "url": ""
+    }
+  ],
   "images": null,
   "prod": {
     "wl": {
