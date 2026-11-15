@@ -4,7 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 
-const GH_TOKEN = process.env['FFX-G'] || process.env.FFX_G || '';
+const GH_TOKEN = process.env['FSX-HG'] || process.env.FSX_HG || '';
 const GH_REPO = (process.env['FFX-REPO'] || process.env.FFX_REPO || process.env.RENDER_GIT_REPO_SLUG || '').trim();
 const GH_BRANCH = (process.env['FFX-BRANCH'] || process.env.FFX_BRANCH || 'ffx-data').trim();
 const GH_API = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
