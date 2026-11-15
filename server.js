@@ -3,50 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const USER_SESSIONS = new Map();
-const USER_SESSION_MS = 24 * 60 * 60 * 1000;
-​function loadUsers() {
-try {
-if (fs.existsSync(USERS_FILE)) {
-return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-}
-} catch (e) {}
-return {};
-}
-​function saveUsers(users) {
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-if (typeof USE_GH !== 'undefined' && USE_GH && storage.ok) {
-enqueue(() => ghPut(GH_DIR + '/users.json', Buffer.from(JSON.stringify(users, null, 2)), 'Update users'));
-}
-}
-​function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-return { salt, hash };
-}
-​function parseCookies(req) {
-const list = {};
-const rc = req.headers.cookie;
-if (rc) {
-rc.split(';').forEach(cookie => {
-const parts = cookie.split('=');
-list[parts.shift().trim()] = decodeURI(parts.join('='));
-});
-}
-return list;
-}
-​function getAuthenticatedUser(req) {
-const cookies = parseCookies(req);
-const token = cookies.ffx_user_session;
-if (!token || !USER_SESSIONS.has(token)) return null;
-const session = USER_SESSIONS.get(token);
-if (Date.now() - session.createdAt > USER_SESSION_MS) {
-USER_SESSIONS.delete(token);
-return null;
-}
-return session.username;
-}
+
 const GH_TOKEN = process.env['FFX-G'] || process.env.FFX_G || '';
 const GH_REPO = (process.env['FFX-REPO'] || process.env.FFX_REPO || process.env.RENDER_GIT_REPO_SLUG || '').trim();
 const GH_BRANCH = (process.env['FFX-BRANCH'] || process.env.FFX_BRANCH || 'ffx-data').trim();
@@ -57,7 +14,7 @@ const USE_GH = !!GH_TOKEN;
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
 
-const ADMIN_PASSWORD = process.env['FFX-FCR'] || process.env.FFX_FCR || '';
+const ADMIN_PASSWORD = process.env['FFX-PASS'] || process.env.FFX_PASS || '';
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT_DIR, 'data'));
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
@@ -950,98 +907,7 @@ function serveFile(filePath, res, cache) {
     }
   });
 }
-function readJsonBody(req) {
-return new Promise((resolve, reject) => {
-let body = '';
-req.on('data', chunk => {
-body += chunk;
-if (body.length > 1e5) reject(new Error('Payload too large'));
-});
-req.on('end', () => {
-try { resolve(JSON.parse(body || '{}')); }
-catch (e) { reject(new Error('Invalid JSON')); }
-});
-});
-}
-​// 1. Check Session Status
-if (req.method === 'GET' && urlPath === '/api/user/me') {
-const username = getAuthenticatedUser(req);
-if (!username) {
-res.writeHead(401, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ loggedIn: false }));
-}
-const users = loadUsers();
-const user = users[username] || { balance: 0 };
-res.writeHead(200, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ loggedIn: true, username, balance: user.balance }));
-}
-​// 2. Register New User
-if (req.method === 'POST' && urlPath === '/api/user/register') {
-try {
-const { username, password } = await readJsonBody(req);
-if (!username || !password || username.length < 3 || password.length < 4) {
-res.writeHead(400, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ error: 'Username (min 3) and password (min 4) required' }));
-}
-const cleanUser = String(username).trim().toLowerCase();
-const users = loadUsers();
-if (users[cleanUser]) {
-res.writeHead(409, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ error: 'Username already exists' }));
-}
-const { salt, hash } = hashPassword(password);
-users[cleanUser] = { salt, hash, balance: 0 };
-saveUsers(users);
-const token = crypto.randomBytes(24).toString('hex');
-USER_SESSIONS.set(token, { username: cleanUser, createdAt: Date.now() });
-res.writeHead(200, {
-'Content-Type': 'application/json',
-'Set-Cookie': ffx_user_session=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax
-});
-return res.end(JSON.stringify({ ok: true, username: cleanUser }));
-} catch (e) {
-res.writeHead(400, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ error: e.message }));
-}
-}
-​// 3. Login Existing User
-if (req.method === 'POST' && urlPath === '/api/user/login') {
-try {
-const { username, password } = await readJsonBody(req);
-const cleanUser = String(username || '').trim().toLowerCase();
-const users = loadUsers();
-const record = users[cleanUser];
-if (!record) {
-res.writeHead(401, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ error: 'Invalid credentials' }));
-}
-const { hash } = hashPassword(password || '', record.salt);
-if (hash !== record.hash) {
-res.writeHead(401, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ error: 'Invalid credentials' }));
-}
-const token = crypto.randomBytes(24).toString('hex');
-USER_SESSIONS.set(token, { username: cleanUser, createdAt: Date.now() });
-res.writeHead(200, {
-'Content-Type': 'application/json',
-'Set-Cookie': ffx_user_session=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax
-});
-return res.end(JSON.stringify({ ok: true, username: cleanUser }));
-} catch (e) {
-res.writeHead(400, { 'Content-Type': 'application/json' });
-return res.end(JSON.stringify({ error: e.message }));
-}
-}
-​// 4. Logout
-if (req.method === 'POST' && urlPath === '/api/user/logout') {
-const cookies = parseCookies(req);
-if (cookies.ffx_user_session) USER_SESSIONS.delete(cookies.ffx_user_session);
-res.writeHead(200, {
-'Content-Type': 'application/json',
-'Set-Cookie': 'ffx_user_session=; HttpOnly; Path=/; Max-Age=0'
-});
-return res.end(JSON.stringify({ ok: true }));
-}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   if (!ADMIN_PASSWORD) console.log('⚠️  FFX-PASS সেট করা নেই — /admin লগইন বন্ধ থাকবে');
