@@ -950,7 +950,98 @@ function serveFile(filePath, res, cache) {
     }
   });
 }
-
+function readJsonBody(req) {
+return new Promise((resolve, reject) => {
+let body = '';
+req.on('data', chunk => {
+body += chunk;
+if (body.length > 1e5) reject(new Error('Payload too large'));
+});
+req.on('end', () => {
+try { resolve(JSON.parse(body || '{}')); }
+catch (e) { reject(new Error('Invalid JSON')); }
+});
+});
+}
+​// 1. Check Session Status
+if (req.method === 'GET' && urlPath === '/api/user/me') {
+const username = getAuthenticatedUser(req);
+if (!username) {
+res.writeHead(401, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ loggedIn: false }));
+}
+const users = loadUsers();
+const user = users[username] || { balance: 0 };
+res.writeHead(200, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ loggedIn: true, username, balance: user.balance }));
+}
+​// 2. Register New User
+if (req.method === 'POST' && urlPath === '/api/user/register') {
+try {
+const { username, password } = await readJsonBody(req);
+if (!username || !password || username.length < 3 || password.length < 4) {
+res.writeHead(400, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ error: 'Username (min 3) and password (min 4) required' }));
+}
+const cleanUser = String(username).trim().toLowerCase();
+const users = loadUsers();
+if (users[cleanUser]) {
+res.writeHead(409, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ error: 'Username already exists' }));
+}
+const { salt, hash } = hashPassword(password);
+users[cleanUser] = { salt, hash, balance: 0 };
+saveUsers(users);
+const token = crypto.randomBytes(24).toString('hex');
+USER_SESSIONS.set(token, { username: cleanUser, createdAt: Date.now() });
+res.writeHead(200, {
+'Content-Type': 'application/json',
+'Set-Cookie': ffx_user_session=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax
+});
+return res.end(JSON.stringify({ ok: true, username: cleanUser }));
+} catch (e) {
+res.writeHead(400, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ error: e.message }));
+}
+}
+​// 3. Login Existing User
+if (req.method === 'POST' && urlPath === '/api/user/login') {
+try {
+const { username, password } = await readJsonBody(req);
+const cleanUser = String(username || '').trim().toLowerCase();
+const users = loadUsers();
+const record = users[cleanUser];
+if (!record) {
+res.writeHead(401, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ error: 'Invalid credentials' }));
+}
+const { hash } = hashPassword(password || '', record.salt);
+if (hash !== record.hash) {
+res.writeHead(401, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ error: 'Invalid credentials' }));
+}
+const token = crypto.randomBytes(24).toString('hex');
+USER_SESSIONS.set(token, { username: cleanUser, createdAt: Date.now() });
+res.writeHead(200, {
+'Content-Type': 'application/json',
+'Set-Cookie': ffx_user_session=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax
+});
+return res.end(JSON.stringify({ ok: true, username: cleanUser }));
+} catch (e) {
+res.writeHead(400, { 'Content-Type': 'application/json' });
+return res.end(JSON.stringify({ error: e.message }));
+}
+}
+​// 4. Logout
+if (req.method === 'POST' && urlPath === '/api/user/logout') {
+const cookies = parseCookies(req);
+if (cookies.ffx_user_session) USER_SESSIONS.delete(cookies.ffx_user_session);
+res.writeHead(200, {
+'Content-Type': 'application/json',
+'Set-Cookie': 'ffx_user_session=; HttpOnly; Path=/; Max-Age=0'
+});
+return res.end(JSON.stringify({ ok: true }));
+}
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   if (!ADMIN_PASSWORD) console.log('⚠️  FFX-PASS সেট করা নেই — /admin লগইন বন্ধ থাকবে');
