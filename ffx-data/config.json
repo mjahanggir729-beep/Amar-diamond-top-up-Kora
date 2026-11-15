@@ -79,11 +79,6 @@
           "label": "Monthly (Indo)",
           "name": "Monthly (Indo)",
           "price": 800
-        },
-        {
-          "label": "Tournament",
-          "name": "Tournament",
-          "price": 7
         }
       ]
     }
