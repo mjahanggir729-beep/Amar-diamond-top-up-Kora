@@ -26,8 +26,8 @@
       "packages": [
         {
           "label": "1X Weekly Lite",
-          "name": "Free",
-          "price": 0
+          "name": "1X Weekly Lite",
+          "price": 40
         },
         {
           "label": "2X Weekly Lite",
